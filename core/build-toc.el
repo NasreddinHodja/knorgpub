@@ -40,10 +40,12 @@
 (defun knorgpub/extract-headings ()
   (org-element-map (org-element-parse-buffer 'headline) 'headline
     (lambda (h)
-      (let ((title (org-element-property :raw-value h)))
+      (let* ((raw   (org-element-property :raw-value h))
+             (title (string-trim (replace-regexp-in-string "\\[fn:[^]]+\\]" "" raw))))
         (unless (string= title org-footnote-section)
           (list :title title
-                :level (org-element-property :level h)))))))
+                :level (org-element-property :level h)
+                :linkable (string= raw title)))))))
 
 (defun knorgpub/extract-note-info (filepath)
   (with-temp-buffer
@@ -74,12 +76,14 @@
          (counter 0))
     (dolist (h headings)
       (setq counter (1+ counter))
-      (let* ((h-title (plist-get h :title))
-             (h-level (plist-get h :level))
-             (indent (make-string (* (- h-level 1) 2) ?\s))
-             (bullet (if (= h-level 1) "+" "-")))
-        (push (format "%s%s [[%s::*%s][%d.%d %s]]"
-                      indent bullet link h-title index counter h-title)
+      (let* ((h-title    (plist-get h :title))
+             (h-level    (plist-get h :level))
+             (h-linkable (plist-get h :linkable))
+             (indent     (make-string (* (- h-level 1) 2) ?\s))
+             (bullet     (if (= h-level 1) "+" "-"))
+             (target     (if h-linkable (format "%s::*%s" link h-title) link)))
+        (push (format "%s%s [[%s][%d.%d %s]]"
+                      indent bullet target index counter h-title)
               lines)))
     (push "" lines)
     (reverse lines)))
