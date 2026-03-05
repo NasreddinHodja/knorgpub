@@ -11,7 +11,7 @@
 
 (let ((config (expand-file-name "config.el" default-directory)))
   (unless (file-exists-p config)
-    (error "knorgpub: config.el not found in %s — run 'knorgpub init' first" default-directory))
+    (error "knorgpub: config.el not found in %s - run 'knorgpub init' first" default-directory))
   (load config))
 
 ;; --- derived (depend on config) ---

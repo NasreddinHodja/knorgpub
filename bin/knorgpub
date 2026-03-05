@@ -73,7 +73,7 @@ cmd_build() {
     emacs -Q --script "$KNORGPUB_FRAMEWORK_DIR/core/publish.el" 2>&1 \
         | grep -v '^Loading\|^Wrote\|^Saving\|^Mark\|^Package' || true
 
-    log "done → public/"
+    log "done. output in public/"
 }
 
 cmd_watch() {

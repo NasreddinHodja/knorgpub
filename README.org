@@ -11,14 +11,14 @@ knorgpub is a thin wrapper around Emacs' built-in [[https://orgmode.org/manual/P
 - A =config.el= per project for configuration
 - Auto-generated index/TOC from all your note files (=build-toc.el=)
 - Custom org-publish export filters that inject breadcrumbs, nav buttons, a collapsible TOC, and a footer into the HTML output
-- A static asset pipeline — framework defaults in =static/= are overlaid by project-local overrides
+- A static asset pipeline: framework defaults in =static/= are overlaid by project-local overrides
 - Orphaned HTML cleanup when =.org= files are deleted
 
 The build pipeline on =knorgpub build=:
 
-1. Merge =static/= assets (framework → project overrides) into =public/static/=
-2. Run =build-toc.el= — scans =content/*.org=, writes =content/index.org=
-3. Run =publish.el= — invokes =org-publish-all=, applies filters, writes HTML to =public/=
+1. Merge =static/= assets (framework, then project overrides) into =public/static/=
+2. Run =build-toc.el=: scans =content/*.org=, writes =content/index.org=
+3. Run =publish.el=: invokes =org-publish-all=, applies filters, writes HTML to =public/=
 4. Delete any =.html= in =public/= that no longer has a matching =.org= source
 
 Syntax highlighting of source blocks is handled by [[https://melpa.org/#/htmlize][htmlize]] (auto-installed), which emits inline CSS from your Emacs theme.
@@ -75,7 +75,7 @@ This scaffolds:
 #+begin_example
 my-notes/
   content/
-    index.org    # auto-managed TOC — do not edit by hand
+    index.org    # auto-managed TOC, do not edit by hand
   static/        # optional: override framework CSS, favicon, JS
   config.el      # project configuration
   build.sh
@@ -162,7 +162,7 @@ my-notes/
     custom.js      # add your own scripts (reference in config.el knorgpub/scripts)
 #+end_example
 
-The build merges framework assets first, then project assets on top — project files always win.
+The build merges framework assets first, then project assets on top. Project files always win.
 
 * Project structure
 
@@ -183,4 +183,4 @@ knorgpub/
 
 * License
 
-MIT
+[[file:LICENSE][MIT]]

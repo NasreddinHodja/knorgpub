@@ -28,7 +28,7 @@ KNORGPUB_FRAMEWORK_DIR="$INSTALL_DIR" exec "$INSTALL_DIR/bin/knorgpub" "\$@"
 EOF
 chmod +x "$BIN_DIR/knorgpub"
 
-log "installed → $BIN_DIR/knorgpub"
+log "installed: $BIN_DIR/knorgpub"
 log ""
 log "make sure $BIN_DIR is on your PATH"
 log "then run 'knorgpub init' from any new project directory"
