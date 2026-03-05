@@ -1,0 +1,170 @@
+#!/usr/bin/env sh
+set -eu
+
+# KNORGPUB_FRAMEWORK_DIR is set by the installed wrapper; fall back to $0 for dev use
+KNORGPUB_FRAMEWORK_DIR="${KNORGPUB_FRAMEWORK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+PROJECT_DIR="${PWD}"
+
+# --- helpers ---
+
+log()  { printf '[knorgpub] %s\n' "$*"; }
+err()  { printf '[knorgpub] error: %s\n' "$*" >&2; }
+die()  { err "$*"; exit 1; }
+
+require_cmd() {
+    command -v "$1" > /dev/null 2>&1 || die "'$1' is required but not found in PATH"
+}
+
+require_file() {
+    [ -f "$1" ] || die "required file not found: $1"
+}
+
+require_dir() {
+    [ -d "$1" ] || die "required directory not found: $1"
+}
+
+check_project() {
+    require_dir "$PROJECT_DIR/content"
+    require_file "$PROJECT_DIR/config.el"
+}
+
+# --- commands ---
+
+usage() {
+    cat >&2 << 'EOF'
+Usage: knorgpub <command>
+
+Commands:
+  init    Scaffold a new project in the current directory
+  build   Build the site
+  watch   Watch for changes and rebuild with live reload
+EOF
+    exit 1
+}
+
+cmd_build() {
+    require_cmd emacs
+    check_project
+
+    log "building..."
+
+    # 1. merge static assets: framework base, then project overrides
+    mkdir -p "$PROJECT_DIR/public/static"
+    cp -r "$KNORGPUB_FRAMEWORK_DIR/static/." "$PROJECT_DIR/public/static/"
+    if [ -d "$PROJECT_DIR/static" ]; then
+        cp -r "$PROJECT_DIR/static/." "$PROJECT_DIR/public/static/"
+    fi
+
+    # 2. copy scripts from content/scripts/ if present
+    if [ -d "$PROJECT_DIR/content/scripts" ]; then
+        mkdir -p "$PROJECT_DIR/public/static/scripts"
+        for f in "$PROJECT_DIR/content/scripts"/*; do
+            [ -f "$f" ] && cp "$f" "$PROJECT_DIR/public/static/scripts/"
+        done
+    fi
+
+    # 3. generate TOC index
+    log "generating TOC..."
+    emacs -Q --script "$KNORGPUB_FRAMEWORK_DIR/core/build-toc.el" 2>&1 \
+        | grep -v '^Loading\|^Wrote\|^Saving\|^Mark' || true
+
+    # 4. publish org -> html
+    log "publishing..."
+    emacs -Q --script "$KNORGPUB_FRAMEWORK_DIR/core/publish.el" 2>&1 \
+        | grep -v '^Loading\|^Wrote\|^Saving\|^Mark\|^Package' || true
+
+    log "done → public/"
+}
+
+cmd_watch() {
+    require_cmd emacs
+    require_cmd inotifywait
+    require_cmd browser-sync
+    check_project
+
+    cmd_build
+
+    # only watch dirs that exist
+    WATCH_DIRS="$PROJECT_DIR/content $KNORGPUB_FRAMEWORK_DIR/core"
+    if [ -d "$PROJECT_DIR/static" ]; then
+        WATCH_DIRS="$WATCH_DIRS $PROJECT_DIR/static"
+    fi
+
+    # shellcheck disable=SC2086
+    (while inotifywait -r -e modify,create,delete,move $WATCH_DIRS 2>/dev/null; do
+        log "change detected, rebuilding..."
+        "$KNORGPUB_FRAMEWORK_DIR/bin/knorgpub" build
+    done) &
+
+    WATCH_PID=$!
+    trap 'kill "$WATCH_PID" 2>/dev/null; exit 0' EXIT INT TERM
+
+    log "watching for changes..."
+    browser-sync start \
+        --server "$PROJECT_DIR/public" \
+        --files "$PROJECT_DIR/public/**/*.*" \
+        --no-open \
+        --reload-delay 50
+}
+
+cmd_init() {
+    [ -d "$PROJECT_DIR/content" ] && die "content/ already exists"
+
+    mkdir -p "$PROJECT_DIR/content"
+    mkdir -p "$PROJECT_DIR/static"
+
+    cat > "$PROJECT_DIR/config.el" << 'EOF'
+;;; knorgpub project config
+
+;; directories
+(setq knorgpub/content-dir (expand-file-name "content" default-directory))
+(setq knorgpub/public-dir  (expand-file-name "public"  default-directory))
+
+;; table of contents
+(setq knorgpub/toc-title "Table of Contents")
+
+;; html output
+(setq knorgpub/css-file  "/static/style.css")
+(setq knorgpub/favicon   "/static/favicon.ico")  ; set to nil to disable
+(setq knorgpub/scripts   '("toc-toggle.js" "scroll-to-top.js"))
+(setq knorgpub/with-toc  t)
+(setq knorgpub/section-numbers nil)
+
+;; org-babel source block defaults
+(setq knorgpub/babel-header-args
+      '((:exports . "both")
+        (:results . "output verbatim")
+        (:session . "none")
+        (:cache   . "no")
+        (:noweb   . "no")
+        (:hlines  . "no")
+        (:tangle  . "no")))
+EOF
+
+    cat > "$PROJECT_DIR/build.sh" << 'EOF'
+#!/usr/bin/env sh
+exec knorgpub build
+EOF
+    chmod +x "$PROJECT_DIR/build.sh"
+
+    cat > "$PROJECT_DIR/watch.sh" << 'EOF'
+#!/usr/bin/env sh
+exec knorgpub watch
+EOF
+    chmod +x "$PROJECT_DIR/watch.sh"
+
+    printf '#+title: My Notes\n#+options: toc:nil\n\n* Table of Contents\n' \
+        > "$PROJECT_DIR/content/index.org"
+
+    log "project initialized in $PROJECT_DIR"
+    log "edit config.el, add .org files to content/, then run ./build.sh"
+}
+
+# --- dispatch ---
+
+case "${1:-}" in
+    build) cmd_build ;;
+    watch) cmd_watch ;;
+    init)  cmd_init ;;
+    *)     usage ;;
+esac

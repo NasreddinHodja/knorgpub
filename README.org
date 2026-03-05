@@ -1,0 +1,186 @@
+#+title: knorgpub
+#+options: toc:nil
+
+A framework for publishing [[https://orgmode.org/][Org-mode]] notes to static HTML. Write notes in Org, run one command, get a navigable website.
+
+* How it works
+
+knorgpub is a thin wrapper around Emacs' built-in [[https://orgmode.org/manual/Publishing.html][org-publish]], which converts =.org= files to HTML. knorgpub adds the things org-publish doesn't do out of the box:
+
+- A CLI (=knorgpub build/watch/init=)
+- A =config.el= per project for configuration
+- Auto-generated index/TOC from all your note files (=build-toc.el=)
+- Custom org-publish export filters that inject breadcrumbs, nav buttons, a collapsible TOC, and a footer into the HTML output
+- A static asset pipeline — framework defaults in =static/= are overlaid by project-local overrides
+- Orphaned HTML cleanup when =.org= files are deleted
+
+The build pipeline on =knorgpub build=:
+
+1. Merge =static/= assets (framework → project overrides) into =public/static/=
+2. Run =build-toc.el= — scans =content/*.org=, writes =content/index.org=
+3. Run =publish.el= — invokes =org-publish-all=, applies filters, writes HTML to =public/=
+4. Delete any =.html= in =public/= that no longer has a matching =.org= source
+
+Syntax highlighting of source blocks is handled by [[https://melpa.org/#/htmlize][htmlize]] (auto-installed), which emits inline CSS from your Emacs theme.
+
+* Features
+
+- Auto-generated table of contents index from all note files
+- Breadcrumb navigation via =#+breadcrumbs:= keyword
+- Previous/next page buttons via =#+back:= and =#+next:= keywords
+- Collapsible in-page TOC
+- Footer with scroll-to-top, breadcrumbs, and nav buttons
+- Orphaned HTML cleanup (deleted notes remove their output)
+- Project static assets override framework defaults (CSS, favicon, JS)
+- Live-reload dev server via =watch= command
+- All behaviour configurable via =config.el=
+
+* Requirements
+
+- [[https://www.gnu.org/software/emacs/][Emacs]] 27+
+- [[https://melpa.org/#/htmlize][htmlize]] (auto-installed on first build)
+- [[https://github.com/inotify-tools/inotify-tools][inotifywait]] (for =watch=)
+- [[https://browsersync.io/][browser-sync]] (for =watch=)
+
+* Installation
+
+#+begin_src sh
+git clone https://github.com/youruser/knorgpub ~/Prog/knorgpub
+cd ~/Prog/knorgpub && ./install.sh
+#+end_src
+
+Make sure =~/.local/bin= is on your =PATH=:
+
+#+begin_src sh
+export PATH="$HOME/.local/bin:$PATH"
+#+end_src
+
+To update:
+
+#+begin_src sh
+cd ~/Prog/knorgpub && git pull && ./install.sh
+#+end_src
+
+* Usage
+
+** New project
+
+#+begin_src sh
+mkdir my-notes && cd my-notes
+knorgpub init
+#+end_src
+
+This scaffolds:
+
+#+begin_example
+my-notes/
+  content/
+    index.org    # auto-managed TOC — do not edit by hand
+  static/        # optional: override framework CSS, favicon, JS
+  config.el      # project configuration
+  build.sh
+  watch.sh
+#+end_example
+
+** Build
+
+#+begin_src sh
+knorgpub build
+# or
+./build.sh
+#+end_src
+
+Output goes to =public/=.
+
+** Dev server
+
+#+begin_src sh
+knorgpub watch
+# or
+./watch.sh
+#+end_src
+
+Runs an initial build, then watches for changes and live-reloads the browser at =http://localhost:3000=.
+
+* Writing notes
+
+Add =.org= files to =content/=. Each file should declare a title and an index number (used for TOC ordering):
+
+#+begin_src org
+#+title: Introduction
+#+index: 1
+#+end_src
+
+** Navigation keywords
+
+| Keyword          | Description                      | Example                                            |
+|------------------+----------------------------------+----------------------------------------------------|
+| =#+index:=       | TOC sort order                   | =#+index: 2=                                       |
+| =#+breadcrumbs:= | Breadcrumb trail above the title | =#+breadcrumbs: Home:/ > Chapter 1:/chapter1.html= |
+| =#+back:=        | Previous page button             | =#+back: Intro:intro.html=                         |
+| =#+next:=        | Next page button                 | =#+next: Part 2:part2.html=                        |
+
+Breadcrumb and nav button format is =label:url=. The current page is appended automatically as a non-linked span.
+
+* Customization
+
+** config.el
+
+Every project has a =config.el= at its root, loaded by the Emacs scripts before publishing. All knorgpub settings live here:
+
+#+begin_src elisp
+;; directories
+(setq knorgpub/content-dir (expand-file-name "content" default-directory))
+(setq knorgpub/public-dir  (expand-file-name "public"  default-directory))
+
+;; table of contents
+(setq knorgpub/toc-title "Table of Contents")
+
+;; html output
+(setq knorgpub/css-file  "/static/style.css")
+(setq knorgpub/favicon   "/static/favicon.ico")  ; nil to disable
+(setq knorgpub/scripts   '("toc-toggle.js" "scroll-to-top.js"))
+(setq knorgpub/with-toc  t)
+(setq knorgpub/section-numbers nil)
+
+;; org-babel source block defaults
+(setq knorgpub/babel-header-args
+      '((:exports . "both")
+        (:results . "output verbatim")
+        ...))
+#+end_src
+
+** Static assets
+
+Place files in your project's =static/= directory to override framework defaults:
+
+#+begin_example
+my-notes/
+  static/
+    style.css      # overrides knorgpub's default stylesheet
+    favicon.ico    # overrides the default favicon
+    custom.js      # add your own scripts (reference in config.el knorgpub/scripts)
+#+end_example
+
+The build merges framework assets first, then project assets on top — project files always win.
+
+* Project structure
+
+#+begin_example
+knorgpub/
+  bin/
+    knorgpub          # CLI entry point (build/watch/init)
+  core/
+    build-toc.el      # scans content/, auto-writes index.org
+    publish.el        # org-publish config + HTML filters
+  static/
+    style.css         # default stylesheet
+    favicon.ico       # default favicon
+    toc-toggle.js     # collapsible in-page TOC
+    scroll-to-top.js  # scroll-to-top button
+  install.sh
+#+end_example
+
+* License
+
+MIT
