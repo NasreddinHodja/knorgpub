@@ -170,10 +170,18 @@
             (buffer-string))
         string))))
 
+(defun knorgpub/filter-toc-footnotes (string backend _info)
+  (when (eq backend 'html)
+    (replace-regexp-in-string
+     "<li>[[:space:]]*<a[^>]*>[[:space:]]*Footnotes[[:space:]]*</a>[[:space:]]*</li>\n?"
+     ""
+     string)))
+
 (add-to-list 'org-export-filter-final-output-functions 'knorgpub/filter-collapsible-toc)
 (add-to-list 'org-export-filter-final-output-functions 'knorgpub/filter-breadcrumbs)
 (add-to-list 'org-export-filter-final-output-functions 'knorgpub/filter-nav-buttons)
 (add-to-list 'org-export-filter-final-output-functions 'knorgpub/filter-footer)
+(add-to-list 'org-export-filter-final-output-functions 'knorgpub/filter-toc-footnotes)
 
 ;; --- publish ---
 

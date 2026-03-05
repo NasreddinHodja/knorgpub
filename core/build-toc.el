@@ -40,8 +40,10 @@
 (defun knorgpub/extract-headings ()
   (org-element-map (org-element-parse-buffer 'headline) 'headline
     (lambda (h)
-      (list :title (org-element-property :raw-value h)
-            :level (org-element-property :level h)))))
+      (let ((title (org-element-property :raw-value h)))
+        (unless (string= title org-footnote-section)
+          (list :title title
+                :level (org-element-property :level h)))))))
 
 (defun knorgpub/extract-note-info (filepath)
   (with-temp-buffer
