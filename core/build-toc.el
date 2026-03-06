@@ -27,15 +27,34 @@
     (message "Creating index file %s" knorgpub/index-file)
     (knorgpub/create-index-file)))
 
-(defun knorgpub/get-notes-files ()
-  (seq-filter (lambda (f)
-                (not (string= f (file-name-nondirectory knorgpub/index-file))))
-              (directory-files knorgpub/notes-dir nil "\\.org$")))
-
 (defun knorgpub/create-index-file ()
   (let ((title (read-string "Notes title: ")))
     (with-temp-file knorgpub/index-file
       (insert (format "#+title: %s\n#+options: toc:nil\n\n* %s\n\n" title knorgpub/toc-title)))))
+
+(defun knorgpub/ensure-subdir-index (subdir)
+  "Ensure index.org exists in SUBDIR, auto-creating with default content if missing.
+Returns the path to the index file."
+  (let ((index (expand-file-name "index.org" subdir)))
+    (unless (file-exists-p index)
+      (let ((title (capitalize (file-name-nondirectory subdir))))
+        (message "Creating index for subdirectory: %s" subdir)
+        (with-temp-file index
+          (insert (format "#+title: %s\n#+index: 0\n#+options: toc:nil\n\n* %s\n\n"
+                          title knorgpub/toc-title)))))
+    index))
+
+(defun knorgpub/get-dir-org-files (dir index-file)
+  "Return absolute paths of .org files directly in DIR, excluding INDEX-FILE."
+  (seq-filter (lambda (f) (not (string= f index-file)))
+              (directory-files dir t "\\.org$")))
+
+(defun knorgpub/get-subdirs (dir)
+  "Return absolute paths of subdirectories in DIR, excluding hidden ones."
+  (seq-filter (lambda (f)
+                (and (file-directory-p f)
+                     (not (string-match-p "/\\." f))))
+              (directory-files dir t)))
 
 (defun knorgpub/extract-headings ()
   (org-element-map (org-element-parse-buffer 'headline) 'headline
@@ -47,50 +66,68 @@
                 :level (org-element-property :level h)
                 :linkable (string= raw title)))))))
 
-(defun knorgpub/extract-note-info (filepath)
+(defun knorgpub/extract-file-info (filepath dir)
+  "Extract TOC entry info from FILEPATH. DIR is the directory of the index being built."
   (with-temp-buffer
     (insert-file-contents filepath)
     (org-mode)
-    (let* ((filename (file-name-nondirectory filepath))
-           (title (or (cadar (org-collect-keywords '("title"))) filename))
-           (index (string-to-number (cadar (org-collect-keywords '("index")))))
+    (let* ((rel-path (file-relative-name filepath dir))
+           (title    (or (cadar (org-collect-keywords '("title"))) (file-name-base filepath)))
+           (index    (string-to-number (or (cadar (org-collect-keywords '("index"))) "0")))
            (headings (knorgpub/extract-headings)))
-      (list :link (concat "./" filename)
-            :title title
-            :index index
-            :headings headings))))
+      (list :link     (concat "./" rel-path)
+            :title    title
+            :index    index
+            :headings headings
+            :type     'file))))
 
-(defun knorgpub/collect-notes ()
-  (let ((infos '()))
-    (dolist (filename (knorgpub/get-notes-files))
-      (message "Processing %s..." filename)
-      (push (knorgpub/extract-note-info (expand-file-name filename knorgpub/notes-dir)) infos))
-    (sort infos (lambda (a b) (< (plist-get a :index) (plist-get b :index))))))
+(defun knorgpub/extract-subdir-info (subdir-index dir)
+  "Extract TOC entry info for a subdirectory from its SUBDIR-INDEX file.
+DIR is the directory of the parent index being built."
+  (with-temp-buffer
+    (insert-file-contents subdir-index)
+    (org-mode)
+    (let* ((rel-path (file-relative-name subdir-index dir))
+           (title    (or (cadar (org-collect-keywords '("title")))
+                         (capitalize (file-name-nondirectory
+                                      (directory-file-name (file-name-directory subdir-index))))))
+           (index    (string-to-number (or (cadar (org-collect-keywords '("index"))) "0"))))
+      (list :link     (concat "./" rel-path)
+            :title    title
+            :index    index
+            :headings nil
+            :type     'subdir))))
 
-(defun knorgpub/toc-section (note-info)
-  (let* ((link (plist-get note-info :link))
-         (title (plist-get note-info :title))
-         (index (plist-get note-info :index))
-         (headings (plist-get note-info :headings))
-         (lines (list (format "** [[%s][%d.0 %s]]" link index title)))
-         (counter 0))
-    (dolist (h headings)
-      (setq counter (1+ counter))
-      (let* ((h-title    (plist-get h :title))
-             (h-level    (plist-get h :level))
-             (h-linkable (plist-get h :linkable))
-             (indent     (make-string (* (- h-level 1) 2) ?\s))
-             (bullet     (if (= h-level 1) "+" "-"))
-             (target     (if h-linkable (format "%s::*%s" link h-title) link)))
-        (push (format "%s%s [[%s][%d.%d %s]]"
-                      indent bullet target index counter h-title)
-              lines)))
+(defun knorgpub/toc-entry (item)
+  "Generate list of TOC lines for ITEM."
+  (let* ((link     (plist-get item :link))
+         (title    (plist-get item :title))
+         (index    (plist-get item :index))
+         (headings (plist-get item :headings))
+         (type     (plist-get item :type))
+         (lines    (list (if (eq type 'subdir)
+                            (format "** [[%s][%d %s]]" link index title)
+                          (format "** [[%s][%d.0 %s]]" link index title))))
+         (counter  0))
+    (when (eq type 'file)
+      (dolist (h headings)
+        (setq counter (1+ counter))
+        (let* ((h-title    (plist-get h :title))
+               (h-level    (plist-get h :level))
+               (h-linkable (plist-get h :linkable))
+               (indent     (make-string (* (- h-level 1) 2) ?\s))
+               (bullet     (if (= h-level 1) "+" "-"))
+               (target     (if h-linkable (format "%s::*%s" link h-title) link)))
+          (push (format "%s%s [[%s][%d.%d %s]]"
+                        indent bullet target index counter h-title)
+                lines))))
     (push "" lines)
     (reverse lines)))
 
-(defun knorgpub/update-toc ()
+(defun knorgpub/update-index (index-file items)
+  "Replace the TOC section in INDEX-FILE with entries generated from ITEMS."
   (with-temp-buffer
-    (insert-file-contents knorgpub/index-file)
+    (insert-file-contents index-file)
     (org-mode)
     (goto-char (point-min))
     (when (re-search-forward (format "^\\* %s" knorgpub/toc-title) nil t)
@@ -106,13 +143,33 @@
       (goto-char (point-max))
       (unless (bolp) (insert "\n")))
     (insert (format "* %s\n" knorgpub/toc-title))
-    (dolist (line (apply #'append (mapcar #'knorgpub/toc-section (knorgpub/collect-notes))))
+    (dolist (line (apply #'append (mapcar #'knorgpub/toc-entry items)))
       (insert line "\n"))
-    (write-file knorgpub/index-file)))
+    (write-file index-file)))
+
+(defun knorgpub/process-directory (dir)
+  "Recursively process DIR: ensure index.org exists, update its TOC, process subdirs."
+  (let* ((index-file (expand-file-name "index.org" dir))
+         (org-files  (knorgpub/get-dir-org-files dir index-file))
+         (subdirs    (knorgpub/get-subdirs dir))
+         (items      '()))
+    ;; Recursively process subdirs and collect their index entries
+    (dolist (subdir subdirs)
+      (let ((subdir-index (knorgpub/ensure-subdir-index subdir)))
+        (knorgpub/process-directory subdir)
+        (push (knorgpub/extract-subdir-info subdir-index dir) items)))
+    ;; Collect .org file entries
+    (dolist (filepath org-files)
+      (message "Processing %s..." filepath)
+      (push (knorgpub/extract-file-info filepath dir) items))
+    ;; Sort by #+index: value
+    (setq items (sort items (lambda (a b) (< (plist-get a :index) (plist-get b :index)))))
+    ;; Write updated index
+    (knorgpub/update-index index-file items)))
 
 ;; --- run ---
 
 (knorgpub/validate-env)
-(message "Generating TOC in %s..." knorgpub/index-file)
-(knorgpub/update-toc)
-(message "TOC complete. Processed %d files." (length (knorgpub/get-notes-files)))
+(message "Generating TOCs starting from %s..." knorgpub/notes-dir)
+(knorgpub/process-directory knorgpub/notes-dir)
+(message "TOC generation complete.")
